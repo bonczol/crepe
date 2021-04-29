@@ -153,7 +153,7 @@ def to_viterbi_cents(salience):
                      range(len(observations))])
 
 
-def get_activation(audio, sr, model_capacity='full', center=True, step_size=10,
+def get_activation(audio, sr, model, center=True, step_size=10,
                    verbose=1):
     """
 
@@ -182,7 +182,6 @@ def get_activation(audio, sr, model_capacity='full', center=True, step_size=10,
     activation : np.ndarray [shape=(T, 360)]
         The raw activation matrix
     """
-    model = build_and_load_model(model_capacity)
 
     if len(audio.shape) == 2:
         audio = audio.mean(1)  # make mono
@@ -212,7 +211,7 @@ def get_activation(audio, sr, model_capacity='full', center=True, step_size=10,
     return model.predict(frames, verbose=verbose)
 
 
-def predict(audio, sr, model_capacity='full',
+def predict(audio, sr, model,
             viterbi=False, center=True, step_size=10, verbose=1):
     """
     Perform pitch estimation on given audio
@@ -252,7 +251,7 @@ def predict(audio, sr, model_capacity='full',
         activation: np.ndarray [shape=(T, 360)]
             The raw activation matrix
     """
-    activation = get_activation(audio, sr, model_capacity=model_capacity,
+    activation = get_activation(audio, sr, model=model,
                                 center=center, step_size=step_size,
                                 verbose=verbose)
     confidence = activation.max(axis=1)
