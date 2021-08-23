@@ -153,6 +153,21 @@ def to_viterbi_cents(salience):
                      range(len(observations))])
 
 
+def get_frames(audio, step_size, center=True):
+    # pad so that frames are centered around their timestamps (i.e. first frame
+    # is zero centered).
+    if center:
+        audio = np.pad(audio, 512, mode='constant', constant_values=0)
+
+    # make 1024-sample frames of the audio with hop length of 10 milliseconds
+    hop_length = int(model_srate * step_size / 1000)
+    n_frames = 1 + int((len(audio) - 1024) / hop_length)
+    frames = as_strided(audio, shape=(1024, n_frames),
+                        strides=(audio.itemsize, hop_length * audio.itemsize))
+    frames = frames.transpose().copy()
+    return frames
+
+
 def get_activation(audio, sr, model, center=True, step_size=10,
                    verbose=1):
     """
@@ -191,17 +206,7 @@ def get_activation(audio, sr, model, center=True, step_size=10,
         from resampy import resample
         audio = resample(audio, sr, model_srate)
 
-    # pad so that frames are centered around their timestamps (i.e. first frame
-    # is zero centered).
-    if center:
-        audio = np.pad(audio, 512, mode='constant', constant_values=0)
-
-    # make 1024-sample frames of the audio with hop length of 10 milliseconds
-    hop_length = int(model_srate * step_size / 1000)
-    n_frames = 1 + int((len(audio) - 1024) / hop_length)
-    frames = as_strided(audio, shape=(1024, n_frames),
-                        strides=(audio.itemsize, hop_length * audio.itemsize))
-    frames = frames.transpose().copy()
+    frames = get_frames(audio, step_size, center)
 
     # normalize each frame -- this is expected by the model
     frames -= np.mean(frames, axis=1)[:, np.newaxis]
@@ -267,6 +272,43 @@ def predict(audio, sr, model,
     time = np.arange(confidence.shape[0]) * step_size / 1000.0
 
     return time, frequency, confidence, activation
+
+
+def predict_voicing(confidence):
+    """
+    Find the Viterbi path for voiced versus unvoiced frames.
+    Parameters
+    ----------
+    confidence : np.ndarray [shape=(N,)]
+        voicing confidence array, i.e. the confidence in the presence of
+        a pitch
+    Returns
+    -------
+    voicing_states : np.ndarray [shape=(N,)]
+        HMM predictions for each frames state, 0 if unvoiced, 1 if
+        voiced
+    """
+    from hmmlearn import hmm
+
+    # uniform prior on the voicing confidence
+    starting = np.array([0.5, 0.5])
+
+    # transition probabilities inducing continuous voicing state
+    transition = np.array([[0.99, 0.01], [0.01, 0.99]])
+
+    # mean and variance for unvoiced and voiced states
+    means = np.array([[0.0], [1.0]])
+    variances = np.array([[0.25], [0.25]])
+
+    # fix the model parameters because we are not optimizing the model
+    model = hmm.GaussianHMM(n_components=2)
+    model.startprob_, model.covars_, model.transmat_, model.means_, model.n_features = \
+        starting, variances, transition, means, 1
+
+    # find the Viterbi path
+    voicing_states = model.predict(confidence.reshape(-1, 1), [len(confidence)])
+
+    return np.array(voicing_states)
 
 
 def process_file(file, output=None, model_capacity='full', viterbi=False,
